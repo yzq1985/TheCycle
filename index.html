@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>深海 | 沉浸式体验</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;500;700&family=Cinzel:wght@400;600&display=swap" rel="stylesheet">
+    
+    <style>
+        :root { --text-color: rgba(255, 255, 255, 0.9); }
+        body {
+            margin: 0; background-color: #004869; 
+            font-family: 'Noto Serif SC', serif; color: var(--text-color);
+            overflow: hidden; height: 100vh; cursor: none;
+        }
+
+        /* 1. 氛围层 */
+        .noise-overlay {
+            position: fixed; inset: 0; pointer-events: none; z-index: 50; opacity: 0.07;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+        .light-shaft {
+            position: fixed; top: -20%; left: 50%; transform: translateX(-50%) rotate(-15deg);
+            width: 150vw; height: 120vh; background: radial-gradient(circle at 50% 0%, rgba(255,255,255,0.15) 0%, transparent 60%);
+            filter: blur(80px); z-index: -5; pointer-events: none; transition: opacity 0.1s;
+        }
+        .vignette {
+            position: fixed; inset: 0; background: radial-gradient(circle, transparent 40%, rgba(0,0,0,0.8) 100%);
+            z-index: 40; pointer-events: none; opacity: 0; transition: opacity 0.1s;
+        }
+        #canvas-container { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+
+        /* 2. 滚动内容 */
+        .scroll-content { position: absolute; top: 0; left: 0; width: 100%; will-change: transform; z-index: 10; }
+        
+        .zone {
+            height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;
+            position: relative; opacity: 0; transform: translateY(60px); transition: opacity 1.5s ease, transform 1.5s ease;
+        }
+        .zone.visible { opacity: 1; transform: translateY(0); }
+
+        /* 图片呼吸效果 */
+        @keyframes float {
+            0%, 100% { transform: translateY(0) scale(1.02); }
+            50% { transform: translateY(-10px) scale(1.04); }
+        }
+        
+        .zone-img {
+            width: 45vw; max-width: 600px; height: 55vh; object-fit: cover;
+            mix-blend-mode: luminosity; filter: grayscale(80%) contrast(1.2) brightness(0.8);
+            mask-image: radial-gradient(circle, black 20%, transparent 70%);
+            -webkit-mask-image: radial-gradient(circle, black 20%, transparent 70%);
+            transition: all 2s ease; margin-bottom: 2rem;
+        }
+        .zone.visible .zone-img {
+            filter: grayscale(40%) contrast(1.1) brightness(1);
+            /* 激活时增加呼吸动效 */
+            animation: float 6s ease-in-out infinite;
+        }
+
+        h2 { font-size: 2.5rem; letter-spacing: 0.3em; margin: 0; font-weight: 300; text-shadow: 0 0 40px rgba(255,255,255,0.3); }
+        p { font-size: 1.1rem; max-width: 500px; text-align: center; line-height: 2.2; margin-top: 1.5rem; opacity: 0.8; font-weight: 300; letter-spacing: 1.5px; }
+        .depth-marker { position: absolute; right: 12vw; top: 50%; font-family: 'Cinzel', serif; font-size: 0.9rem; opacity: 0.4; writing-mode: vertical-rl; letter-spacing: 4px; border-right: 1px solid rgba(255,255,255,0.3); padding-right: 15px; }
+
+        /* 3. 交互元素 */
+        #intro, #outro {
+            position: fixed; inset: 0; background: #000; z-index: 100;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            transition: opacity 2s ease;
+        }
+        #outro { display: none; opacity: 0; background: #fff; } /* 上浮结束时的白光 */
+
+        .btn-action {
+            background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white;
+            padding: 20px 60px; font-family: 'Noto Serif SC', serif; font-size: 1.2rem; letter-spacing: 8px;
+            cursor: none; transition: all 0.6s; margin-top: 50px;
+        }
+        .btn-action:hover { background: rgba(255,255,255,0.1); box-shadow: 0 0 30px rgba(255,255,255,0.2); }
+
+        .btn-ascend {
+            margin-top: 40px; padding: 15px 40px; border: 1px solid rgba(255,255,255,0.5);
+            background: rgba(255,255,255,0.1); color: #fff; font-family: 'Cinzel'; letter-spacing: 4px;
+            cursor: none; transition: 0.5s; opacity: 0; transform: translateY(20px);
+        }
+        .zone.visible .btn-ascend { opacity: 1; transform: translateY(0); pointer-events: auto; }
+        .btn-ascend:hover { background: #fff; color: #000; box-shadow: 0 0 40px #fff; }
+
+        #cursor {
+            position: fixed; width: 10px; height: 10px; background: white; border-radius: 50%;
+            pointer-events: none; transform: translate(-50%, -50%); z-index: 9999;
+            mix-blend-mode: exclusion; transition: width 0.2s, height 0.2s; box-shadow: 0 0 10px white;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="cursor"></div>
+    <div class="noise-overlay"></div>
+    <div class="light-shaft" id="lightShaft"></div>
+    <div class="vignette" id="vignetteLayer"></div>
+
+    <!-- 启动页 -->
+    <div id="intro">
+        <h1 style="font-size: 4rem; letter-spacing: 15px; font-weight: 300; text-shadow: 0 0 30px rgba(255,255,255,0.5);">深 渊</h1>
+        <p style="margin-top: 1rem; opacity: 0.6; letter-spacing: 4px;">戴 上 耳 机 · 关 闭 灯 光</p>
+        <button class="btn-action" onclick="startDive()">入 水</button>
+    </div>
+
+    <!-- 结束白光页 -->
+    <div id="outro"></div>
+
+    <canvas id="canvas-container"></canvas>
+
+    <div class="scroll-content" id="scrollContent">
+        
+        <!-- 0m -->
+        <div class="zone">
+            <div class="depth-marker">0 m</div>
+            <img src="https://images.unsplash.com/photo-1547623641-d2c56c03e2a7?q=80&w=2070&auto=format&fit=crop" class="zone-img">
+            <h2>表象</h2>
+            <p>世界太吵了。<br>在这里，我们只听水的声音。</p>
+        </div>
+        <!-- 40m -->
+        <div class="zone">
+            <div class="depth-marker">40 m</div>
+            <img src="https://images.unsplash.com/photo-1582967788606-a171f1080ca8?q=80&w=2070&auto=format&fit=crop" class="zone-img">
+            <h2>下潜</h2>
+            <p>光线开始弯曲。<br>熟悉的重力逐渐消失。</p>
+        </div>
+        <!-- 200m -->
+        <div class="zone">
+            <div class="depth-marker">200 m</div>
+            <img src="https://images.unsplash.com/photo-1518837695005-2083093ee35b?q=80&w=2070&auto=format&fit=crop" class="zone-img">
+            <h2>拥抱</h2>
+            <p>感受海水的重量。<br>它不是在压迫你，而是在拥抱你。</p>
+        </div>
+        <!-- 500m -->
+        <div class="zone">
+            <div class="depth-marker">500 m</div>
+            <img src="https://images.unsplash.com/photo-1568430462989-44163eb1752f?q=80&w=2070&auto=format&fit=crop" class="zone-img">
+            <h2>巨鲸</h2>
+            <p>巨大的心脏在黑暗中跳动。<br>你听见了吗？</p>
+        </div>
+        <!-- 1000m -->
+        <div class="zone">
+            <div class="depth-marker">1,000 m</div>
+            <img src="https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2070&auto=format&fit=crop" class="zone-img">
+            <h2>午夜</h2>
+            <p>绝对的黑暗。<br>你终于安全了，没人能看见你。</p>
+        </div>
+        <!-- 3000m -->
+        <div class="zone">
+            <div class="depth-marker">3,000 m</div>
+            <img src="https://images.unsplash.com/photo-1504204267155-aaad8e81290d?q=80&w=2070&auto=format&fit=crop" class="zone-img">
+            <h2>独处</h2>
+            <p>抹香鲸在此屏息。<br>享受这份巨大的孤独。</p>
+        </div>
+        <!-- 3800m -->
+        <div class="zone">
+            <div class="depth-marker">3,800 m</div>
+            <img src="https://images.unsplash.com/photo-1596324121650-62286a77f950?q=80&w=2070&auto=format&fit=crop" class="zone-img">
+            <h2>遗忘</h2>
+            <p>泰坦尼克号。<br>所有的辉煌，最终都将归于寂静。</p>
+        </div>
+        <!-- 6000m -->
+        <div class="zone">
+            <div class="depth-marker">6,000 m</div>
+            <img src="https://images.unsplash.com/photo-1626262903734-7582b1373515?q=80&w=2070&auto=format&fit=crop" class="zone-img">
+            <h2>凝视</h2>
+            <p>深渊带。<br>当你凝视深渊时，深渊也在凝视你。</p>
+        </div>
+        <!-- 9000m -->
+        <div class="zone">
+            <div class="depth-marker">9,000 m</div>
+            <img src="https://images.unsplash.com/photo-1464802686167-b939a6910659?q=80&w=2070&auto=format&fit=crop" class="zone-img">
+            <h2>虚无</h2>
+            <p>没有声音，没有光。<br>只有你自己。</p>
+        </div>
+        <!-- 11000m -->
+        <div class="zone" style="height: 100vh;">
+            <div class="depth-marker">11,000 m</div>
+            <h2 style="font-size: 2rem; letter-spacing: 10px; opacity: 0.7;">底 部</h2>
+            <p style="margin-top:20px;">欢迎回家。</p>
+            <!-- 上浮按钮 -->
+            <button class="btn-ascend" onclick="startAscent()">重 返 水 面</button>
+        </div>
+
+    </div>
+
+    <script>
+        // --- 1. 核心状态 ---
+        let currentScroll = 0;
+        let targetScroll = 0;
+        let isAscending = false; // 是否正在自动上浮
+        let ease = 0.04; 
+        const scrollContent = document.getElementById('scrollContent');
+        const lightShaft = document.getElementById('lightShaft');
+        const vignetteLayer = document.getElementById('vignetteLayer');
+        
+        // 颜色断点
+        const colorStops = [
+            { pct: 0, rgb: [0, 72, 105] },
+            { pct: 0.1, rgb: [0, 30, 60] },
+            { pct: 0.25, rgb: [5, 10, 25] },
+            { pct: 0.5, rgb: [2, 2, 5] },
+            { pct: 1, rgb: [0, 0, 0] }
+        ];
+
+        // --- 2. 滚动与环境逻辑 ---
+        window.addEventListener('wheel', (e) => {
+            if (isAscending) return; // 上浮时禁止操作
+            const maxScroll = scrollContent.offsetHeight - window.innerHeight;
+            targetScroll += e.deltaY;
+            targetScroll = Math.max(0, Math.min(targetScroll, maxScroll));
+        });
+
+        function updateAtmosphere(progress) {
+            // 颜色插值
+            let start = colorStops[0], end = colorStops[0], t = 0;
+            for(let i=0; i<colorStops.length-1; i++) {
+                if(progress >= colorStops[i].pct && progress <= colorStops[i+1].pct) {
+                    start = colorStops[i]; end = colorStops[i+1];
+                    t = (progress - colorStops[i].pct) / (colorStops[i+1].pct - colorStops[i].pct);
+                    break;
+                } else if (progress > colorStops[colorStops.length-1].pct) {
+                    start = end = colorStops[colorStops.length-1];
+                }
+            }
+            const r = Math.round(start.rgb[0] + (end.rgb[0] - start.rgb[0]) * t);
+            const g = Math.round(start.rgb[1] + (end.rgb[1] - start.rgb[1]) * t);
+            const b = Math.round(start.rgb[2] + (end.rgb[2] - start.rgb[2]) * t);
+            document.body.style.backgroundColor = `rgb(${r},${g},${b})`;
+
+            // 光线与暗角
+            lightShaft.style.opacity = Math.max(0, 1 - progress * 7);
+            vignetteLayer.style.opacity = Math.min(1, progress * 1.5);
+        }
+
+        function animateScroll() {
+            // 如果是上浮模式，targetScroll 会自动变小
+            if (isAscending) {
+                targetScroll -= 50; // 上浮速度
+                if (targetScroll <= 0) {
+                    targetScroll = 0;
+                    finishAscent();
+                }
+            }
+
+            currentScroll += (targetScroll - currentScroll) * ease;
+            scrollContent.style.transform = `translate3d(0, -${currentScroll}px, 0)`;
+            
+            const maxScroll = scrollContent.offsetHeight - window.innerHeight;
+            const progress = Math.min(Math.max(currentScroll / maxScroll, 0), 1);
+            
+            updateAtmosphere(progress);
+            checkVisibility();
+            
+            // 音频动态调整 (越深越闷)
+            if(audioCtx && noiseFilter) {
+                const freq = 400 - (progress * 300);
+                noiseFilter.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.1);
+            }
+
+            requestAnimationFrame(animateScroll);
+        }
+
+        const zones = document.querySelectorAll('.zone');
+        function checkVisibility() {
+            zones.forEach(zone => {
+                const rect = zone.getBoundingClientRect();
+                const center = window.innerHeight / 2;
+                const dist = Math.abs(rect.top + rect.height/2 - center);
+                if (dist < window.innerHeight * 0.55) {
+                    zone.classList.add('visible');
+                } else {
+                    zone.classList.remove('visible');
+                }
+            });
+        }
+
+        // --- 3. 上浮机制 (The Return) ---
+        function startAscent() {
+            isAscending = true;
+            ease = 0.1; // 增加响应速度
+            
+            // 音频变化：频率升高，模拟上浮
+            if(audioCtx && noiseFilter) {
+                noiseFilter.frequency.linearRampToValueAtTime(1000, audioCtx.currentTime + 5);
+            }
+        }
+
+        function finishAscent() {
+            if(!isAscending) return; // 防止重复触发
+            isAscending = false;
+            
+            // 白光闪现
+            const outro = document.getElementById('outro');
+            outro.style.display = 'flex';
+            // 强制重绘
+            outro.offsetHeight;
+            outro.style.opacity = 1;
+
+            // 2秒后重置页面
+            setTimeout(() => {
+                location.reload();
+            }, 2000);
+        }
+
+        // --- 4. 音频引擎 ---
+        let audioCtx, noiseFilter;
+        function startDive() {
+            document.getElementById('intro').style.opacity = 0;
+            setTimeout(() => document.getElementById('intro').style.display = 'none', 2000);
+            animateScroll();
+            animateCanvas();
+            initAudio();
+        }
+
+        function initAudio() {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioContext();
+
+            const bufferSize = 2 * audioCtx.sampleRate;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const output = buffer.getChannelData(0);
+            let lastOut = 0;
+            for (let i = 0; i < bufferSize; i++) {
+                let white = Math.random() * 2 - 1;
+                output[i] = (lastOut + (0.02 * white)) / 1.02;
+                lastOut = output[i];
+                output[i] *= 3.5; 
+            }
+            const noiseNode = audioCtx.createBufferSource();
+            noiseNode.buffer = buffer;
+            noiseNode.loop = true;
+            
+            noiseFilter = audioCtx.createBiquadFilter();
+            noiseFilter.type = 'lowpass';
+            noiseFilter.frequency.value = 400; 
+            
+            const noiseGain = audioCtx.createGain();
+            noiseGain.gain.value = 0.15;
+
+            noiseNode.connect(noiseFilter);
+            noiseFilter.connect(noiseGain);
+            noiseGain.connect(audioCtx.destination);
+            noiseNode.start();
+
+            setInterval(playSonar, 8000);
+        }
+
+        function playSonar() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(120, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 2);
+            gain.gain.setValueAtTime(0, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.1);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 3);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 3);
+        }
+
+        // --- 5. 粒子 Canvas ---
+        const canvas = document.getElementById('canvas-container');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+        function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        class Particle {
+            constructor() { this.reset(); }
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 2;
+                this.speed = Math.random() * 0.4 + 0.1;
+                this.opacity = Math.random() * 0.4;
+            }
+            update() {
+                // 上浮时粒子反向加速
+                const dir = isAscending ? -5 : 1; 
+                const scrollSpeed = (targetScroll - currentScroll) * 0.02;
+                this.y -= (this.speed + scrollSpeed) * dir;
+                
+                if (this.y < 0) { this.y = canvas.height; this.x = Math.random() * canvas.width; }
+                if (this.y > canvas.height) { this.y = 0; this.x = Math.random() * canvas.width; }
+            }
+            draw() {
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity})`;
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+        for(let i=0; i<120; i++) particles.push(new Particle());
+        function animateCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => { p.update(); p.draw(); });
+            requestAnimationFrame(animateCanvas);
+        }
+
+        // 光标
+        const cursor = document.getElementById('cursor');
+        window.addEventListener('mousemove', (e) => {
+            cursor.style.left = e.clientX + 'px'; cursor.style.top = e.clientY + 'px';
+        });
+        document.querySelectorAll('button').forEach(el => {
+            el.addEventListener('mouseenter', () => cursor.style.transform = 'translate(-50%, -50%) scale(4)');
+            el.addEventListener('mouseleave', () => cursor.style.transform = 'translate(-50%, -50%) scale(1)');
+        });
+
+    </script>
+</body>
+</html>
